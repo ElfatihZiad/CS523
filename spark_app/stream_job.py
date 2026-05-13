@@ -6,13 +6,17 @@ record, explodes its per-metric `sensordatavalues` array, and produces two
 streams:
 
   1. windowed_stats — 5-minute tumbling-window avg/min/max/count grouped by
-     country + metric (e.g. P1, P2, temperature, humidity). Written to the
-     Hive table `iot.iot_window_stats` once each window closes.
+     country + metric (e.g. P1, P2, temperature, humidity).
   2. anomalies — individual readings where PM2.5 (value_type = "P2") exceeds
-     150 µg/m³ ("very unhealthy" threshold). Written to `iot.iot_anomalies`.
+     150 µg/m³ ("very unhealthy" threshold).
 
-Run the DDL in hive_ddl.sql once before starting the job. Submit from inside
-the cs523bdt-lab container:
+Each stream is written twice: as Parquet to the HDFS path that the Hive table
+DDL points at (so beeline can SELECT from `iot.iot_window_stats` /
+`iot.iot_anomalies` directly), and as JDBC rows to the Postgres
+`iot_dashboard` DB consumed by Grafana.
+
+Run the DDL once before starting the job. Submit from inside the
+cs523bdt-lab container:
 
     beeline -u jdbc:hive2://localhost:10000 -f /opt/spark_app/hive_ddl.sql
     /opt/spark_app/submit.sh
@@ -43,8 +47,12 @@ KAFKA_BOOTSTRAP = "kafka-server-2:9092"
 KAFKA_TOPIC = "iot-data"
 
 HIVE_DB = "iot"
-WINDOW_TABLE = f"{HIVE_DB}.iot_window_stats"
-ANOMALY_TABLE = f"{HIVE_DB}.iot_anomalies"
+# We write Parquet directly to the Hive table's HDFS LOCATION; Hive picks up
+# the files via the external/managed table DDL in hive_ddl.sql. Avoids needing
+# Spark to be wired to the Hive metastore.
+HIVE_WAREHOUSE = "hdfs:///user/hive/warehouse"
+WINDOW_PATH = f"{HIVE_WAREHOUSE}/{HIVE_DB}.db/iot_window_stats"
+ANOMALY_PATH = f"{HIVE_WAREHOUSE}/{HIVE_DB}.db/iot_anomalies"
 
 CHECKPOINT_ROOT = "hdfs:///user/streaming/checkpoints"
 
@@ -80,7 +88,6 @@ def build_spark() -> SparkSession:
     spark = (
         SparkSession.builder
         .appName("IoTStreamProcessor")
-        .enableHiveSupport()
         .getOrCreate()
     )
     spark.sparkContext.setLogLevel("WARN")
@@ -102,7 +109,7 @@ def write_window_stats(batch_df, batch_id):
         col("max_val"),
         col("sample_count"),
     ).persist()
-    flat.write.mode("append").insertInto(WINDOW_TABLE)
+    flat.write.mode("append").parquet(WINDOW_PATH)
     flat.write.mode("append").jdbc(JDBC_URL, "iot_window_stats", properties=JDBC_PROPS)
     flat.unpersist()
 
@@ -119,7 +126,7 @@ def write_anomalies(batch_df, batch_id):
         col("value"),
         col("alert"),
     ).persist()
-    flat.write.mode("append").insertInto(ANOMALY_TABLE)
+    flat.write.mode("append").parquet(ANOMALY_PATH)
     flat.write.mode("append").jdbc(JDBC_URL, "iot_anomalies", properties=JDBC_PROPS)
     flat.unpersist()
 
