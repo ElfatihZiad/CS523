@@ -88,7 +88,9 @@ def build_spark() -> SparkSession:
 
 
 def write_window_stats(batch_df, batch_id):
-    if batch_df.rdd.isEmpty():
+    # Use a SQL-only emptiness check; .rdd.isEmpty() forces cloudpickle, which
+    # is incompatible between Spark 3.1's bundled cloudpickle and Python 3.10+.
+    if batch_df.limit(1).count() == 0:
         return
     flat = batch_df.select(
         col("window.start").alias("window_start"),
@@ -106,7 +108,7 @@ def write_window_stats(batch_df, batch_id):
 
 
 def write_anomalies(batch_df, batch_id):
-    if batch_df.rdd.isEmpty():
+    if batch_df.limit(1).count() == 0:
         return
     flat = batch_df.select(
         col("sensor_id"),
