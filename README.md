@@ -77,7 +77,7 @@ docker exec -it cs523bdt-finalproject bash -c "/opt/spark_app/setup_hdfs.sh"
 
 # 4. Create Hive tables (points at the HDFS paths Spark writes to)
 docker exec -it cs523bdt-finalproject bash -c \
-  "beeline -u jdbc:hive2://localhost:10000 -f /opt/spark_app/hive_ddl.sql"
+  "beeline -u jdbc:hive2://localhost:10000 -n root -f /opt/spark_app/hive_ddl.sql"
 
 # 5. Start the streaming job
 docker exec -it cs523bdt-finalproject bash
@@ -116,7 +116,7 @@ open http://localhost:4040
 
 # Hive table contents
 docker exec -it cs523bdt-finalproject bash -c \
-  "beeline -u jdbc:hive2://localhost:10000 -e 'SELECT COUNT(*) FROM iot.iot_anomalies;'"
+  "beeline -u jdbc:hive2://localhost:10000 -n root -e 'SELECT COUNT(*) FROM iot.iot_anomalies;'"
 
 # Underlying HDFS Parquet files
 docker exec -it cs523bdt-finalproject bash -c \
@@ -189,7 +189,7 @@ docker exec -it cs523bdt-finalproject bash -c \
   "hdfs dfs -rm -r -skipTrash /user/streaming/checkpoints \
    && hdfs dfs -rm -r -skipTrash /user/hive/warehouse/iot.db \
    && /opt/spark_app/setup_hdfs.sh \
-   && beeline -u jdbc:hive2://localhost:10000 -f /opt/spark_app/hive_ddl.sql"
+   && beeline -u jdbc:hive2://localhost:10000 -n root -f /opt/spark_app/hive_ddl.sql"
 docker exec -i hive-metastore-db-2 psql -U hive -d iot_dashboard \
   < spark_app/postgres_ddl.sql
 ```

@@ -1,6 +1,6 @@
 -- Hive DDL for the IoT streaming pipeline.
 -- Run once from inside the cs523bdt-lab container:
---   beeline -u jdbc:hive2://localhost:10000 -f /opt/spark_app/hive_ddl.sql
+--   beeline -u jdbc:hive2://localhost:10000 -n root -f /opt/spark_app/hive_ddl.sql
 
 CREATE DATABASE IF NOT EXISTS iot;
 USE iot;

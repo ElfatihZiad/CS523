@@ -19,7 +19,7 @@ the Postgres `iot_dashboard` DB consumed by Grafana.
 Run the DDL once before starting the job. Submit from inside the
 cs523bdt-lab container:
 
-    beeline -u jdbc:hive2://localhost:10000 -f /opt/spark_app/hive_ddl.sql
+    beeline -u jdbc:hive2://localhost:10000 -n root -f /opt/spark_app/hive_ddl.sql
     /opt/spark_app/submit.sh
 """
 
