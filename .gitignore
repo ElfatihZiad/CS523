@@ -1,6 +1,35 @@
+# OS
 .DS_Store
+Thumbs.db
+
+# Editors / IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Claude Code workspace
+.claude/
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+# Spark / Hive scratch
 .spark-warehouse/
+spark-warehouse/
 metastore_db/
 derby.log
+
+# Logs / local artifacts
+*.log
+logs/
+
+# Secrets
+.env
+.env.local
+*.pem
