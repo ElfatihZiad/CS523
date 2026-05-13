@@ -49,32 +49,32 @@ services:
       POSTGRES_PASSWORD: hivepassword
     volumes:
       - hive_db_data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
     ports:
       - "5432:5432"
 
-  # 4. Main Big Data Service (Professor's custom image)
-  # cs523bdt-lab:
-  #   image: mmukadam/cs523bdt-lab:v4.0
-  #   container_name: cs523bdt-finalproject
-  #   hostname: localhost
-  #   depends_on:
-  #     - postgres-db
-  #     - zookeeper
-  #     - kafka
-  #   environment:
-  #     - TZ=America/Chicago  # OPTIONAL: Force specific timezone if volume fails
-  #     - CLASS_PASS=DEcs523bdt_Feb2026
-  #   ports:
-  #     - "9870:9870"   # HDFS UI
-  #     - "8088:8088"   # YARN UI
-  #     - "10000:10000" # Hive JDBC
-  #     - "16010:16010" # HBase Master UI
-  #     - "4040:4040"   # Spark UI
-  #   volumes:
-  #     # Mount a local folder 'my_code' to share files
-  #     - ./my_code:/opt/my_code
-  #     - /etc/localtime:/etc/localtime:ro
-  #   tty: true
+  # 4. Main Big Data Service (Professor's custom image: HDFS, YARN, Hive, HBase, Spark)
+  cs523bdt-lab:
+    image: mmukadam/cs523bdt-lab:v4.0
+    container_name: cs523bdt-finalproject
+    hostname: localhost
+    depends_on:
+      - postgres-db
+      - zookeeper
+      - kafka
+    environment:
+      - TZ=America/Chicago
+      - CLASS_PASS=DEcs523bdt_Feb2026
+    ports:
+      - "9870:9870"   # HDFS UI
+      - "8088:8088"   # YARN UI
+      - "10000:10000" # Hive JDBC
+      - "16010:16010" # HBase Master UI
+      - "4040:4040"   # Spark UI
+    volumes:
+      - ./spark_app:/opt/spark_app
+      - /etc/localtime:/etc/localtime:ro
+    tty: true
 
   producer:
     build: ./producer
@@ -88,6 +88,24 @@ services:
       kafka:
         condition: service_healthy
 
-# Define the persistent volume
+  # 5. Grafana dashboard — reads from the iot_dashboard Postgres DB.
+  grafana:
+    image: grafana/grafana-oss:11.1.0
+    container_name: iot-grafana
+    depends_on:
+      - postgres-db
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+
+# Define the persistent volumes
 volumes:
   hive_db_data:
+  grafana_data:
