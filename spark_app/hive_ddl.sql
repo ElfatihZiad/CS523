@@ -5,10 +5,18 @@
 CREATE DATABASE IF NOT EXISTS iot;
 USE iot;
 
-CREATE TABLE IF NOT EXISTS iot_window_stats (
+-- Drop-and-recreate so schema changes (e.g. country_name / region columns
+-- added by the Part 5 static join) are picked up. Data lives in Parquet on
+-- HDFS; recreating the table only drops metadata.
+DROP TABLE IF EXISTS iot_window_stats;
+DROP TABLE IF EXISTS iot_anomalies;
+
+CREATE TABLE iot_window_stats (
   window_start TIMESTAMP,
   window_end   TIMESTAMP,
   country      STRING,
+  country_name STRING,
+  region       STRING,
   metric       STRING,
   avg_val      DOUBLE,
   min_val      DOUBLE,
@@ -18,14 +26,16 @@ CREATE TABLE IF NOT EXISTS iot_window_stats (
 STORED AS PARQUET
 LOCATION '/user/hive/warehouse/iot.db/iot_window_stats';
 
-CREATE TABLE IF NOT EXISTS iot_anomalies (
-  sensor_id   BIGINT,
-  event_time  TIMESTAMP,
-  country     STRING,
-  sensor_type STRING,
-  metric      STRING,
-  value       DOUBLE,
-  alert       STRING
+CREATE TABLE iot_anomalies (
+  sensor_id    BIGINT,
+  event_time   TIMESTAMP,
+  country      STRING,
+  country_name STRING,
+  region       STRING,
+  sensor_type  STRING,
+  metric       STRING,
+  value        DOUBLE,
+  alert        STRING
 )
 STORED AS PARQUET
 LOCATION '/user/hive/warehouse/iot.db/iot_anomalies';

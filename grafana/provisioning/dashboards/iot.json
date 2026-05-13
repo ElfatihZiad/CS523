@@ -101,7 +101,7 @@
       "type": "barchart",
       "title": "Top Countries by Sample Count",
       "datasource": { "type": "postgres", "uid": "iot-postgres" },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 22 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 22 },
       "fieldConfig": { "defaults": { "unit": "short" } },
       "options": { "orientation": "horizontal", "showValue": "auto" },
       "targets": [
@@ -109,7 +109,29 @@
           "refId": "A",
           "datasource": { "type": "postgres", "uid": "iot-postgres" },
           "format": "table",
-          "rawSql": "SELECT country, SUM(sample_count) AS samples FROM iot_window_stats WHERE $__timeFilter(window_end) AND country IS NOT NULL GROUP BY country ORDER BY samples DESC LIMIT 15"
+          "rawSql": "SELECT COALESCE(country_name, country) AS country, SUM(sample_count) AS samples FROM iot_window_stats WHERE $__timeFilter(window_end) AND country IS NOT NULL GROUP BY 1 ORDER BY samples DESC LIMIT 15"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Avg ${metric} by Region (Spark SQL static join)",
+      "datasource": { "type": "postgres", "uid": "iot-postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 22 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 15 } }
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "iot-postgres" },
+          "format": "time_series",
+          "rawSql": "SELECT window_end AS time, region AS metric, AVG(avg_val) AS value FROM iot_window_stats WHERE metric = '${metric}' AND region IS NOT NULL AND $__timeFilter(window_end) GROUP BY window_end, region ORDER BY window_end"
         }
       ]
     }

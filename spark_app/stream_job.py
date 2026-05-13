@@ -10,10 +10,11 @@ streams:
   2. anomalies — individual readings where PM2.5 (value_type = "P2") exceeds
      150 µg/m³ ("very unhealthy" threshold).
 
-Each stream is written twice: as Parquet to the HDFS path that the Hive table
-DDL points at (so beeline can SELECT from `iot.iot_window_stats` /
-`iot.iot_anomalies` directly), and as JDBC rows to the Postgres
-`iot_dashboard` DB consumed by Grafana.
+Each stream is enriched via a Spark SQL broadcast join with a static country
+metadata CSV stored on HDFS (Part 5 bonus), then written twice: as Parquet to
+the HDFS path that the Hive table DDL points at (so beeline can SELECT from
+`iot.iot_window_stats` / `iot.iot_anomalies` directly), and as JDBC rows to
+the Postgres `iot_dashboard` DB consumed by Grafana.
 
 Run the DDL once before starting the job. Submit from inside the
 cs523bdt-lab container:
@@ -25,6 +26,7 @@ cs523bdt-lab container:
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     avg,
+    broadcast,
     col,
     count,
     explode,
@@ -55,6 +57,11 @@ WINDOW_PATH = f"{HIVE_WAREHOUSE}/{HIVE_DB}.db/iot_window_stats"
 ANOMALY_PATH = f"{HIVE_WAREHOUSE}/{HIVE_DB}.db/iot_anomalies"
 
 CHECKPOINT_ROOT = "hdfs:///user/streaming/checkpoints"
+
+# Static country lookup uploaded by setup_hdfs.sh — broadcast-joined onto the
+# stream so every record carries country_name + region (Part 5 bonus:
+# Spark SQL join with static HDFS data).
+COUNTRY_LOOKUP_PATH = "hdfs:///data/countries.csv"
 
 JDBC_URL = "jdbc:postgresql://postgres-db:5432/iot_dashboard"
 JDBC_PROPS = {
@@ -103,6 +110,8 @@ def write_window_stats(batch_df, batch_id):
         col("window.start").alias("window_start"),
         col("window.end").alias("window_end"),
         col("country"),
+        col("country_name"),
+        col("region"),
         col("metric"),
         col("avg_val"),
         col("min_val"),
@@ -121,6 +130,8 @@ def write_anomalies(batch_df, batch_id):
         col("sensor_id"),
         col("event_time"),
         col("country"),
+        col("country_name"),
+        col("region"),
         col("sensor_type"),
         col("metric"),
         col("value"),
@@ -162,6 +173,32 @@ def parse_records(raw_df):
     )
 
 
+def load_country_lookup(spark: SparkSession):
+    """Load the static country metadata CSV from HDFS for stream-static joins."""
+    return (
+        spark.read
+        .option("header", True)
+        .csv(COUNTRY_LOOKUP_PATH)
+        .select(
+            col("country_code").alias("_cc"),
+            col("country_name"),
+            col("region"),
+        )
+    )
+
+
+def enrich_with_country(parsed_df, country_lookup_df):
+    """Spark SQL left-join the stream with the static country lookup."""
+    return (
+        parsed_df.join(
+            broadcast(country_lookup_df),
+            parsed_df.country == country_lookup_df._cc,
+            "left",
+        )
+        .drop("_cc")
+    )
+
+
 def windowed_aggregates(parsed_df):
     return (
         parsed_df
@@ -169,6 +206,8 @@ def windowed_aggregates(parsed_df):
         .groupBy(
             window(col("event_time"), "5 minutes"),
             col("country"),
+            col("country_name"),
+            col("region"),
             col("metric"),
         )
         .agg(
@@ -190,7 +229,11 @@ def anomaly_stream(parsed_df):
 
 def main() -> None:
     spark = build_spark()
-    parsed = parse_records(kafka_source(spark))
+    country_lookup = load_country_lookup(spark)
+    parsed = enrich_with_country(
+        parse_records(kafka_source(spark)),
+        country_lookup,
+    )
 
     agg_query = (
         windowed_aggregates(parsed).writeStream
