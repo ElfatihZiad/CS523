@@ -1,0 +1,139 @@
+{
+  "title": "IoT Air Quality — Live",
+  "uid": "iot-air-quality",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "tags": ["cs523", "iot"],
+  "templating": {
+    "list": [
+      {
+        "name": "metric",
+        "label": "Metric",
+        "type": "custom",
+        "current": { "text": "P2", "value": "P2" },
+        "options": [
+          { "text": "P1 (PM10)", "value": "P1", "selected": false },
+          { "text": "P2 (PM2.5)", "value": "P2", "selected": true },
+          { "text": "Temperature", "value": "temperature", "selected": false },
+          { "text": "Humidity", "value": "humidity", "selected": false }
+        ],
+        "query": "P1,P2,temperature,humidity"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Avg ${metric} by Country (5-min windows)",
+      "datasource": { "type": "postgres", "uid": "iot-postgres" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "iot-postgres" },
+          "format": "time_series",
+          "rawSql": "SELECT window_end AS time, country AS metric, avg_val AS value FROM iot_window_stats WHERE metric = '${metric}' AND country IS NOT NULL AND $__timeFilter(window_end) ORDER BY window_end"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Anomalies (PM2.5 > 150) in selected range",
+      "datasource": { "type": "postgres", "uid": "iot-postgres" },
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 10 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 1 },
+              { "color": "red", "value": 50 }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "area", "textMode": "value" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "iot-postgres" },
+          "format": "table",
+          "rawSql": "SELECT count(*) AS anomalies FROM iot_anomalies WHERE $__timeFilter(event_time)"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Recent Anomalies",
+      "datasource": { "type": "postgres", "uid": "iot-postgres" },
+      "gridPos": { "h": 12, "w": 16, "x": 8, "y": 10 },
+      "options": { "showHeader": true },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "iot-postgres" },
+          "format": "table",
+          "rawSql": "SELECT event_time, country, sensor_id, sensor_type, metric, value FROM iot_anomalies WHERE $__timeFilter(event_time) ORDER BY event_time DESC LIMIT 100"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "barchart",
+      "title": "Top Countries by Sample Count",
+      "datasource": { "type": "postgres", "uid": "iot-postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 22 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "orientation": "horizontal", "showValue": "auto" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "iot-postgres" },
+          "format": "table",
+          "rawSql": "SELECT COALESCE(country_name, country) AS country, SUM(sample_count) AS samples FROM iot_window_stats WHERE $__timeFilter(window_end) AND country IS NOT NULL GROUP BY 1 ORDER BY samples DESC LIMIT 15"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Avg ${metric} by Region (Spark SQL static join)",
+      "datasource": { "type": "postgres", "uid": "iot-postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 22 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 15 } }
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "iot-postgres" },
+          "format": "time_series",
+          "rawSql": "SELECT window_end AS time, region AS metric, AVG(avg_val) AS value FROM iot_window_stats WHERE metric = '${metric}' AND region IS NOT NULL AND $__timeFilter(window_end) GROUP BY window_end, region ORDER BY window_end"
+        }
+      ]
+    }
+  ]
+}
