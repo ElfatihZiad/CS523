@@ -153,4 +153,110 @@ def kafka_source(spark: SparkSession):
     )
 
 
+def parse_records(raw_df):
+    return (
+        raw_df
+        .select(from_json(col("value").cast("string"), RECORD_SCHEMA).alias("r"))
+        .select("r.*")
+        .withColumn("event_time", to_timestamp(col("timestamp"), "yyyy-MM-dd HH:mm:ss"))
+        .withColumn("sdv", explode(col("sensordatavalues")))
+        .select(
+            col("id").alias("sensor_id"),
+            col("event_time"),
+            col("location.country").alias("country"),
+            col("sensor.sensor_type.name").alias("sensor_type"),
+            col("sdv.value_type").alias("metric"),
+            col("sdv.value").cast("double").alias("value"),
+        )
+        .filter(col("value").isNotNull())
+        .filter(col("event_time").isNotNull())
+    )
 
+
+def load_country_lookup(spark: SparkSession):
+    """Load the static country metadata CSV from HDFS for stream-static joins."""
+    return (
+        spark.read
+        .option("header", True)
+        .csv(COUNTRY_LOOKUP_PATH)
+        .select(
+            col("country_code").alias("_cc"),
+            col("country_name"),
+            col("region"),
+        )
+    )
+
+
+def enrich_with_country(parsed_df, country_lookup_df):
+    """Spark SQL left-join the stream with the static country lookup."""
+    return (
+        parsed_df.join(
+            broadcast(country_lookup_df),
+            parsed_df.country == country_lookup_df._cc,
+            "left",
+        )
+        .drop("_cc")
+    )
+
+
+def windowed_aggregates(parsed_df):
+    return (
+        parsed_df
+        .withWatermark("event_time", "10 minutes")
+        .groupBy(
+            window(col("event_time"), "5 minutes"),
+            col("country"),
+            col("country_name"),
+            col("region"),
+            col("metric"),
+        )
+        .agg(
+            avg("value").alias("avg_val"),
+            smin("value").alias("min_val"),
+            smax("value").alias("max_val"),
+            count("value").alias("sample_count"),
+        )
+    )
+
+
+def anomaly_stream(parsed_df):
+    return (
+        parsed_df
+        .filter((col("metric") == "P2") & (col("value") > 150))
+        .withColumn("alert", lit("HIGH_PM25"))
+    )
+
+
+def main() -> None:
+    spark = build_spark()
+    country_lookup = load_country_lookup(spark)
+    parsed = enrich_with_country(
+        parse_records(kafka_source(spark)),
+        country_lookup,
+    )
+
+    agg_query = (
+        windowed_aggregates(parsed).writeStream
+        .outputMode("append")
+        .foreachBatch(write_window_stats)
+        .option("checkpointLocation", f"{CHECKPOINT_ROOT}/windowed_stats")
+        .queryName("windowed_stats")
+        .trigger(processingTime="30 seconds")
+        .start()
+    )
+
+    anom_query = (
+        anomaly_stream(parsed).writeStream
+        .outputMode("append")
+        .foreachBatch(write_anomalies)
+        .option("checkpointLocation", f"{CHECKPOINT_ROOT}/anomalies")
+        .queryName("anomalies")
+        .trigger(processingTime="15 seconds")
+        .start()
+    )
+
+    spark.streams.awaitAnyTermination()
+
+
+if __name__ == "__main__":
+    main()
